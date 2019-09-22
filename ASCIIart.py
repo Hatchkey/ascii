@@ -7,48 +7,49 @@ import os
 import time
 import sys
 
-'''
-		TODO
-		Post-processing smoothing
-		Bilinear interpolation for rescaling
-		Dithering instead of thresholding
-		Gif suport
-'''
+#		TODO
+#	Post-processing smoothing
+#	Bilinear interpolation for rescaling
+#	Dithering instead of thresholding
+#	Gif suport
+#	Better charset
 
 #Show steps of image conversion?
 debug = False
-if (len(sys.argv) > 0 and "debug" in str(sys.argv)):
+if (len(sys.argv) > 0 and "-d" in str(sys.argv)):
 	debug = True
 
 #Variable which determines the character set the image will be printed with
 #[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
 baseCharset = [' ', '/', '1', 'B']
 
-def getUserInputs(debug):
+def getImageInformation():
 	#Gets the user inputs and returns the image matrix and size, along with the calculated compression factor
 
-	#Get file name from user
-	fileName = "Input/" + input("Image name? ")
-	
+	#Get file name
+	fileName = sys.argv[1] 	
+
 	#Try opening the image
-	originalImage = Image.open(fileName)
+	originalImage = Image.open("Input/"+fileName)
 	originalImageMatrix = originalImage.load()
 	sizex,sizey = originalImage.size
 	
-	#Gets the user-defined compression factor, if stated
-	try:
-		compressionFactor = int(input("Compression factor? "))
-	except:
-		compressionFactor = math.floor(sizex/250)
+	rows,columns = os.popen('stty size', 'r').read().split()
+
+	#Calculates the compression factor for the image to fit the terminal
+	compressionFactor = math.floor(sizex/250) #TODO Retrieve terminal size to calculate compression factor
 	
+	if compressionFactor == 0:
+		compressionFactor = 1 #Support for small images	
+
 	if (debug):
 		originalImage.show()
 	
 	return originalImageMatrix,sizex,sizey,compressionFactor
 
-def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor,debug):
+def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor):
 	#Rescales the image by compressionFactor, with the y axis being rescaled by 2*compressionFactor
-	#due to characters being printed in 6x3
+	#due to characters being printed in 6x3 pixels
 
 	def isRightPixel(sizex,sizey,x,y):
 		#Decides if the analyzed pixel goes into the compressed image, based on the compression factor using
@@ -81,7 +82,7 @@ def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor,debug):
 	
 	return compressedImageMatrix,newSizex,newSizey
 	
-def newGrayScaleImage(ImageMatrix,sizex,sizey,debug):
+def newGrayScaleImage(ImageMatrix,sizex,sizey):
 	#Converts the provided image to a grayscale version of it, and returns it
 	
 	def grayscaleConverter(rgbValues):
@@ -109,7 +110,7 @@ def newGrayScaleImage(ImageMatrix,sizex,sizey,debug):
 	
 	return grayscaleImageMatrix,grayscaleImage
 
-def unsharpMasking(ImageMatrix,Image,sizex,sizey,debug):
+def unsharpMasking(ImageMatrix,Image,sizex,sizey):
 	#Performs unsharp masking to fletch out image borders
 	
 	def unsharpGaussian(ImageMatrix,x,y,sizex,sizey):
@@ -273,20 +274,20 @@ def printImage(ImageMatrix,sizex,sizey,charset):
 			else:
 				print(charset[3],end='')
 				
-#Collect input data
-originalImageMatrix,sizex,sizey,compressionFactor = getUserInputs(debug)
+#Collect image data
+originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
 
 #Nearest Neighbor rescaling 
-compressedImageMatrix,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor,debug)
+compressedImageMatrix,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor)
 
 #Grayscale conversion
-grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey,debug)
+grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
 
 #Smoothing
 #smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey,debug)
 
 #Unsharp masking
-unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey,debug)
+unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
 
 #Thresholding
 thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey,debug)
