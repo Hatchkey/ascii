@@ -5,6 +5,7 @@ import statistics
 import math
 import os
 import time
+import sys
 
 '''
 		TODO
@@ -15,7 +16,9 @@ import time
 '''
 
 #Show steps of image conversion?
-debug = True
+debug = False
+if (len(sys.argv) > 0 and "debug" in str(sys.argv)):
+	debug = True
 
 #Variable which determines the character set the image will be printed with
 #[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
@@ -257,7 +260,7 @@ def smoothing(ImageMatrix,Image,sizex,sizey,debug):
 	return ImageMatrix,Image
 	
 def printImage(ImageMatrix,sizex,sizey,charset):
-	os.system("cls")
+	os.system('cls' if os.name == 'nt' else 'clear')
 	for y in range(sizey):
 		print('')
 		for x in range(sizex):
