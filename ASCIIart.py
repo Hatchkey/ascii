@@ -1,5 +1,6 @@
 from PIL import Image
 from PIL import ImageDraw
+from PIL import GifImagePlugin
 
 import statistics
 import math
@@ -14,27 +15,35 @@ import sys
 #	Gif suport
 #	Better charset
 
+#	USAGE
+# python3 ASCIIart.py <FileName> [-d, -g, -n]
+
 #Show steps of image conversion?
 debug = False
+gif = False
+now = False
+
 if (len(sys.argv) > 0 and "-d" in str(sys.argv)):
 	debug = True
+
+if ("-g" in str(sys.argv)):
+	gif = True
+
+if ("-n" in str(sys.argv)):
+	now = True
 
 #Variable which determines the character set the image will be printed with
 #[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
 baseCharset = [' ', '/', '1', 'B']
 
 def getImageInformation():
-	#Gets the user inputs and returns the image matrix and size, along with the calculated compression factor
-
 	#Get file name
 	fileName = sys.argv[1] 	
 
-	#Try opening the image
+	#Try opening the image			
 	originalImage = Image.open("Input/"+fileName)
 	originalImageMatrix = originalImage.load()
 	sizex,sizey = originalImage.size
-	
-	rows,columns = os.popen('stty size', 'r').read().split()
 
 	#Calculates the compression factor for the image to fit the terminal
 	compressionFactor = math.floor(sizex/250) #TODO Retrieve terminal size to calculate compression factor
@@ -46,6 +55,23 @@ def getImageInformation():
 		originalImage.show()
 	
 	return originalImageMatrix,sizex,sizey,compressionFactor
+
+def getGifInformation():
+	fileName = sys.argv[1]
+	
+	originalGif = Image.open("Input/"+fileName)
+	if (debug):
+		print(originalGif.is_animated)
+		print(originalGif.n_frames)
+	
+	sizex,sizey = originalGif.size
+
+	compressionFactor = math.floor(sizex/350)
+
+	if compressionFactor == 0:
+		compressionFactor = 1
+
+	return originalGif,sizex,sizey,compressionFactor
 
 def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor):
 	#Rescales the image by compressionFactor, with the y axis being rescaled by 2*compressionFactor
@@ -80,7 +106,7 @@ def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor):
 	#Reloads the matrix
 	compressedImageMatrix = compressedImage.load()
 	
-	return compressedImageMatrix,newSizex,newSizey
+	return compressedImageMatrix,compressedImage,newSizex,newSizey
 	
 def newGrayScaleImage(ImageMatrix,sizex,sizey):
 	#Converts the provided image to a grayscale version of it, and returns it
@@ -147,7 +173,7 @@ def unsharpMasking(ImageMatrix,Image,sizex,sizey):
 		return finalValue
 	
 	#Copies the matrix so that changes during processing do not affect next pixel
-	grayscaleImageCopy = grayscaleImage.copy()
+	grayscaleImageCopy = Image.copy()
 	grayscaleImageCopyMatrix = grayscaleImageCopy.load()
 	#Creates the drawer for this image
 	grayscaleImageDrawer = ImageDraw.Draw(Image)
@@ -165,7 +191,7 @@ def unsharpMasking(ImageMatrix,Image,sizex,sizey):
 	
 	return ImageMatrix,Image
 
-def thresholding(ImageMatrix,Image,sizex,sizey,debug):
+def thresholding(ImageMatrix,Image,sizex,sizey):
 	#Performs thresholding in the image
 
 	def findMedianV(ImageMatrix,sizex,sizey):
@@ -211,7 +237,7 @@ def cropping(Image,sizex,sizey):
 	
 	return croppedImageMatrix,croppedImage,newSizex,newSizey
 	
-def smoothing(ImageMatrix,Image,sizex,sizey,debug):
+def smoothing(ImageMatrix,Image,sizex,sizey):
 	#NEEDS REDOING (TOO STRONG)
 	def meanFilter(ImageMatrix,x,y,sizex,sizey):
 		#Gets the mean value of this pixel's neighborhood and adds it to the center
@@ -243,7 +269,7 @@ def smoothing(ImageMatrix,Image,sizex,sizey,debug):
 		
 		return math.floor(statistics.mean(pixelValuesVector))
 		
-	ImageDrawer = ImageDraw.Draw(thresholdedImage)
+	ImageDrawer = ImageDraw.Draw(Image)
 	imageCopy = Image.copy()
 	imageCopyMatrix = imageCopy.load()
 	
@@ -265,35 +291,92 @@ def printImage(ImageMatrix,sizex,sizey,charset):
 	for y in range(sizey):
 		print('')
 		for x in range(sizex):
-			if (croppedImageMatrix[x,y] == 0):
+			if (ImageMatrix[x,y] == 0):
 				print(charset[0],end='')
-			elif (croppedImageMatrix[x,y] == 64):
+			elif (ImageMatrix[x,y] == 64):
 				print(charset[1],end='')
-			elif(croppedImageMatrix[x,y] == 191):
+			elif (ImageMatrix[x,y] == 191):
 				print(charset[2],end='')
 			else:
 				print(charset[3],end='')
-				
-#Collect image data
-originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
 
-#Nearest Neighbor rescaling 
-compressedImageMatrix,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor)
 
-#Grayscale conversion
-grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
+def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
 
-#Smoothing
-#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey,debug)
+	#Nearest Neighbor rescaling 
+	compressedImageMatrix,compressedImage,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor)
 
-#Unsharp masking
-unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
+	#Grayscale conversion
+	grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
 
-#Thresholding
-thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey,debug)
+	#Smoothing
+	#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey,debug)
 
-#Cropping edges
-croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
+	#Unsharp masking
+	unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
 
-#Printing the image
-printImage(croppedImageMatrix,sizex,sizey,baseCharset)
+	#Thresholding
+	thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey)
+
+	#Cropping edges
+	croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
+
+	#Printing the image
+	printImage(croppedImageMatrix,sizex,sizey,baseCharset)
+
+def processGif():
+
+	originalGif,originalSizex,originalSizey,compressionFactor = getGifInformation()
+
+	all_frames = []
+	durations = []
+
+	for frame in range(0,originalGif.n_frames):
+		originalGif.seek(frame)
+		frameMatrix = originalGif.load()
+	
+		#processImage(frameMatrix,sizex,sizey,compressionFactor)
+
+		#Nearest Neighbor rescaling 
+		compressedImageMatrix,compressedImage,sizex,sizey = nearestNeighborRescaling(frameMatrix,originalSizex,originalSizey,compressionFactor)
+
+		#Grayscale conversion
+		grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
+		
+		#Smoothing
+		#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
+
+		#Unsharp masking
+		#unsharpedImageMatrix,unsharpedImage = unsharpMasking(smoothedImageMatrix,smoothedImage,sizex,sizey)
+		
+		#Thresholding
+		thresholdedImageMatrix,thresholdedImage = thresholding(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
+
+		#Cropping edges
+		croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
+
+		if (now):
+			#Printing the image
+			printImage(croppedImageMatrix,sizex,sizey,baseCharset)
+		else:
+			all_frames.append(croppedImageMatrix)
+			durations.append(originalGif.info['duration']/9)
+			
+	if (not now):
+		i = 0
+		for frame in all_frames:
+			printImage(frame,sizex,sizey,baseCharset)
+			time.sleep(1/durations[i])
+			i = i + 1
+
+
+if (gif):
+	processGif()
+
+else:	
+	#Collect image data
+	originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
+
+	#Process that image
+	processImage(originalImageMatrix,sizex,sizey,compressionFactor)
+
