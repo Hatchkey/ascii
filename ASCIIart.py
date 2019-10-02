@@ -7,6 +7,7 @@ import math
 import os
 import time
 import sys
+import shutil
 
 #		TODO
 #	Post-processing smoothing
@@ -34,7 +35,8 @@ if ("-n" in str(sys.argv)):
 
 #Variable which determines the character set the image will be printed with
 #[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
-baseCharset = [' ', '/', '1', 'B']
+#baseCharset = [' ', '/', '1', 'B']
+baseCharset = [' ','*','+','/','1','7','B','#']
 
 def getImageInformation():
 	#Get file name
@@ -65,8 +67,10 @@ def getGifInformation():
 		print(originalGif.n_frames)
 	
 	sizex,sizey = originalGif.size
+	
+	terminalSize = shutil.get_terminal_size()
 
-	compressionFactor = math.floor(sizex/350)
+	compressionFactor = math.floor(max(sizex/terminalSize.columns,sizey/terminalSize.columns))
 
 	if compressionFactor == 0:
 		compressionFactor = 1
@@ -206,21 +210,33 @@ def thresholding(ImageMatrix,Image,sizex,sizey):
 		
 	median = findMedianV(ImageMatrix,sizex,sizey)
 	
-	ImageDrawer = ImageDraw.Draw(Image)
-	
+	ImageDrawer = ImageDraw.Draw(Image)	
+
 	for y in range (1,sizey-1):
 		for x in range (1,sizex-1):
 			newPixelValue = ImageMatrix[x,y]
 			if (newPixelValue >= median):
-				if(newPixelValue >= 3*median/4):
-					ImageDrawer.point([x,y],255)
+				if(newPixelValue >= 5*median/8):
+					if(newPixelValue >= 6*median/8):
+						ImageDrawer.point([x,y],224)
+					else:
+						ImageDrawer.point([x,y],192)
 				else:
-					ImageDrawer.point([x,y],191)
+					if(newPixelValue >= 4*median/8):
+						ImageDrawer.point([x,y],160)
+					else:
+						ImageDrawer.point([x,y],128)
 			else:
-				if(newPixelValue >= median/4):
-					ImageDrawer.point([x,y],64)
+				if(newPixelValue >= 2*median/8):
+					if(newPixelValue >= 3*median/8):
+						ImageDrawer.point([x,y],96)
+					else:
+						ImageDrawer.point([x,y],64)
 				else:
-					ImageDrawer.point([x,y],0)
+					if(newPixelValue >= 1*median/8):
+						ImageDrawer.point([x,y],32)
+					else:
+						ImageDrawer.point([x,y],0)
 	
 	if (debug):
 		Image.show()
@@ -228,7 +244,7 @@ def thresholding(ImageMatrix,Image,sizex,sizey):
 	ImageMatrix = Image.load()
 	
 	return ImageMatrix,Image
-	
+
 def cropping(Image,sizex,sizey):
 	#Crops the 1 pixel border left from thresholding
 	croppedImage = Image.crop((1,1,sizex,sizey))
@@ -291,14 +307,22 @@ def printImage(ImageMatrix,sizex,sizey,charset):
 	for y in range(sizey):
 		print('')
 		for x in range(sizex):
-			if (ImageMatrix[x,y] == 0):
+			if   (ImageMatrix[x,y] ==   0):
 				print(charset[0],end='')
-			elif (ImageMatrix[x,y] == 64):
+			elif (ImageMatrix[x,y] ==  32):
 				print(charset[1],end='')
-			elif (ImageMatrix[x,y] == 191):
+			elif (ImageMatrix[x,y] ==  64):
 				print(charset[2],end='')
-			else:
+			elif (ImageMatrix[x,y] ==  96):
 				print(charset[3],end='')
+			elif (ImageMatrix[x,y] == 128):
+				print(charset[4],end='')
+			elif (ImageMatrix[x,y] == 160):
+				print(charset[5],end='')
+			elif (ImageMatrix[x,y] == 192):
+				print(charset[6],end='')
+			elif (ImageMatrix[x,y] == 224):
+				print(charset[7],end='')
 
 
 def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
@@ -324,6 +348,33 @@ def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
 	#Printing the image
 	printImage(croppedImageMatrix,sizex,sizey,baseCharset)
 
+def move (y, x):
+    print("\033[%d;%dH" % (y, x),end='')
+
+def printGif(ImageMatrix,sizex,sizey,charset,LastImageMatrix):
+	os.system('cls' if os.name == 'nt' else 'clear')
+	for y in range(sizey):
+		print('')
+		for x in range(sizex):
+			if (ImageMatrix[x,y] != LastImageMatrix[x,y]):
+				move(y,x)
+				if   (ImageMatrix[x,y] ==   0):
+					print(charset[0],end='')
+				elif (ImageMatrix[x,y] ==  32):
+					print(charset[1],end='')
+				elif (ImageMatrix[x,y] ==  64):
+					print(charset[2],end='')
+				elif (ImageMatrix[x,y] ==  96):
+					print(charset[3],end='')
+				elif (ImageMatrix[x,y] == 128):
+					print(charset[4],end='')
+				elif (ImageMatrix[x,y] == 160):
+					print(charset[5],end='')
+				elif (ImageMatrix[x,y] == 192):
+					print(charset[6],end='')
+				elif (ImageMatrix[x,y] == 224):
+					print(charset[7],end='')
+
 def processGif():
 
 	originalGif,originalSizex,originalSizey,compressionFactor = getGifInformation()
@@ -331,7 +382,12 @@ def processGif():
 	all_frames = []
 	durations = []
 
+	frameMatrix = originalGif.load()
+
 	for frame in range(0,originalGif.n_frames):
+
+		lastMatrix = frameMatrix
+
 		originalGif.seek(frame)
 		frameMatrix = originalGif.load()
 	
@@ -347,22 +403,23 @@ def processGif():
 		#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
 
 		#Unsharp masking
-		#unsharpedImageMatrix,unsharpedImage = unsharpMasking(smoothedImageMatrix,smoothedImage,sizex,sizey)
+		unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
 		
 		#Thresholding
-		thresholdedImageMatrix,thresholdedImage = thresholding(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
+		thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey)
 
 		#Cropping edges
 		croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
 
 		if (now):
 			#Printing the image
-			printImage(croppedImageMatrix,sizex,sizey,baseCharset)
+			printGif(croppedImageMatrix,sizex,sizey,baseCharset,lastMatrix)
 		else:
 			all_frames.append(croppedImageMatrix)
 			durations.append(originalGif.info['duration']/9)
 			
 	if (not now):
+		input('\nReady\n')
 		i = 0
 		for frame in all_frames:
 			printImage(frame,sizex,sizey,baseCharset)
@@ -379,4 +436,5 @@ else:
 
 	#Process that image
 	processImage(originalImageMatrix,sizex,sizey,compressionFactor)
+
 
