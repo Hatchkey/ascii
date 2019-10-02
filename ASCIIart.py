@@ -9,14 +9,13 @@ import os
 import time
 import sys
 import shutil
-import curses
 import tkinter
 
 #		TODO
 #	Post-processing smoothing
 #	Bilinear interpolation for rescaling
 #	Dithering instead of thresholding
-#	Gif suport
+#	better Gif suport
 #	Better charset
 
 #	USAGE
@@ -24,13 +23,10 @@ import tkinter
 
 class Window(Frame):
 
-	def __init__(self, master=None):
+	def __init__(self, master=None,title="Blank"):
 		Frame.__init__(self, master)               
 		self.master = master
 		
-		def showText(self):
-			text = Label(self, text="Hey there good lookin!")
-			text.pack()
 
 #Show steps of image conversion?
 debug = False
@@ -58,7 +54,7 @@ baseCharset = [' ','*','+','/','1','7','B','#']
 def getImageInformation():
 	#Get file name
 	fileName = sys.argv[1] 	
-
+	
 	#Try opening the image			
 	originalImage = Image.open("Input/"+fileName)
 	originalImageMatrix = originalImage.load()
@@ -73,7 +69,7 @@ def getImageInformation():
 	if (debug):
 		originalImage.show()
 	
-	return originalImageMatrix,sizex,sizey,compressionFactor
+	return fileName,originalImageMatrix,sizex,sizey,compressionFactor
 
 def getGifInformation():
 	fileName = sys.argv[1]
@@ -92,7 +88,7 @@ def getGifInformation():
 	if compressionFactor == 0:
 		compressionFactor = 1
 
-	return originalGif,sizex,sizey,compressionFactor
+	return fileName,originalGif,sizex,sizey,compressionFactor
 
 def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor):
 	#Rescales the image by compressionFactor, with the y axis being rescaled by 2*compressionFactor
@@ -319,31 +315,65 @@ def smoothing(ImageMatrix,Image,sizex,sizey):
 	
 	return ImageMatrix,Image
 	
-def printImage(ImageMatrix,sizex,sizey,charset):
+def showImage(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName):
 	
-	os.system('cls' if os.name == 'nt' else 'clear')	
-	for y in range(sizey):
-		print('')
-		for x in range(sizex):
-			if   (ImageMatrix[x,y] ==   0):
-				print(charset[0],end='')
-			elif (ImageMatrix[x,y] ==  32):
-				print(charset[1],end='')
-			elif (ImageMatrix[x,y] ==  64):
-				print(charset[2],end='')
-			elif (ImageMatrix[x,y] ==  96):
-				print(charset[3],end='')
-			elif (ImageMatrix[x,y] == 128):
-				print(charset[4],end='')
-			elif (ImageMatrix[x,y] == 160):
-				print(charset[5],end='')
-			elif (ImageMatrix[x,y] == 192):
-				print(charset[6],end='')
-			elif (ImageMatrix[x,y] == 224):
-				print(charset[7],end='')
+	def printImage(ImageMatrix,sizex,sizey,charset):
+		os.system('cls' if os.name == 'nt' else 'clear')	
+		for y in range(sizey):
+			print('')
+			for x in range(sizex):
+				if   (ImageMatrix[x,y] ==   0):
+					print(charset[0],end='')
+				elif (ImageMatrix[x,y] ==  32):
+					print(charset[1],end='')
+				elif (ImageMatrix[x,y] ==  64):
+					print(charset[2],end='')
+				elif (ImageMatrix[x,y] ==  96):
+					print(charset[3],end='')
+				elif (ImageMatrix[x,y] == 128):
+					print(charset[4],end='')
+				elif (ImageMatrix[x,y] == 160):
+					print(charset[5],end='')
+				elif (ImageMatrix[x,y] == 192):
+					print(charset[6],end='')
+				elif (ImageMatrix[x,y] == 224):
+					print(charset[7],end='')
 
-
-def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
+	def printToWindow(ImageMatrix,sizex,sizey,charset,fileName):
+		root = Tk()
+		root.title(fileName)
+		text = Text(root,height = sizey,width = sizex)
+		text.pack()
+		text.config(font = ("Courier", 2),bg = 'black',fg = 'green')
+		for y in range(0,sizey):
+			for x in range(0,sizex):
+				if   (ImageMatrix[x,y] ==   0):
+					text.insert(tkinter.END,charset[0])
+				elif (ImageMatrix[x,y] ==  32):
+					text.insert(tkinter.END,charset[1])
+				elif (ImageMatrix[x,y] ==  64):
+					text.insert(tkinter.END,charset[2])
+				elif (ImageMatrix[x,y] ==  96):
+					text.insert(tkinter.END,charset[3])
+				elif (ImageMatrix[x,y] == 128):
+					text.insert(tkinter.END,charset[4])
+				elif (ImageMatrix[x,y] == 160):
+					text.insert(tkinter.END,charset[5])
+				elif (ImageMatrix[x,y] == 192):
+					text.insert(tkinter.END,charset[6])
+				elif (ImageMatrix[x,y] == 224):
+					text.insert(tkinter.END,charset[7])
+		root.mainloop()
+	
+	if (not window):
+		printImage(finalImageMatrix,finalSizex,finalSizey,baseCharset)
+	else:
+		if (not gif):
+			printToWindow(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName)
+		if (gif):
+			return 0
+	
+def processFrame(originalImageMatrix,sizex,sizey,compressionFactor):
 
 	#Nearest Neighbor rescaling 
 	compressedImageMatrix,compressedImage,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor)
@@ -362,126 +392,53 @@ def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
 
 	#Cropping edges
 	croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
+		
+	return croppedImageMatrix,croppedImage,sizex,sizey
+	
+def processImage():
 
-	#Printing the image
-	printImage(croppedImageMatrix,sizex,sizey,baseCharset)
-
-	if (window):
-		printToWindow(croppedImageMatrix,sizex,sizey,baseCharset)
-
-def move (y, x):
-    print("\033[%d;%dH" % (y, x),end='')
-
-def printGif(ImageMatrix,sizex,sizey,charset,LastImageMatrix):
-	os.system('cls' if os.name == 'nt' else 'clear')
-	for y in range(sizey):
-		print('')
-		for x in range(sizex):
-			if (ImageMatrix[x,y] != LastImageMatrix[x,y]):
-				move(y,x)
-				if   (ImageMatrix[x,y] ==   0):
-					print(charset[0],end='')
-				elif (ImageMatrix[x,y] ==  32):
-					print(charset[1],end='')
-				elif (ImageMatrix[x,y] ==  64):
-					print(charset[2],end='')
-				elif (ImageMatrix[x,y] ==  96):
-					print(charset[3],end='')
-				elif (ImageMatrix[x,y] == 128):
-					print(charset[4],end='')
-				elif (ImageMatrix[x,y] == 160):
-					print(charset[5],end='')
-				elif (ImageMatrix[x,y] == 192):
-					print(charset[6],end='')
-				elif (ImageMatrix[x,y] == 224):
-					print(charset[7],end='')
-
+	#Get image data
+	fileName,originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
+	
+	#Process that image as a frame
+	finalImageMatrix,finalImage,finalSizex,finalSizey = processFrame(originalImageMatrix,sizex,sizey,compressionFactor)
+	
+	#Print that image
+	showImage(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName)
+	
 def processGif():
 
-	originalGif,originalSizex,originalSizey,compressionFactor = getGifInformation()
+	fileName,originalGif,originalSizex,originalSizey,compressionFactor = getGifInformation()
 
 	all_frames = []
 	durations = []
 
-	frameMatrix = originalGif.load()
-
 	for frame in range(0,originalGif.n_frames):
-
-		lastMatrix = frameMatrix
-
+	
 		originalGif.seek(frame)
 		frameMatrix = originalGif.load()
 	
-		#processImage(frameMatrix,sizex,sizey,compressionFactor)
-
-		#Nearest Neighbor rescaling 
-		compressedImageMatrix,compressedImage,sizex,sizey = nearestNeighborRescaling(frameMatrix,originalSizex,originalSizey,compressionFactor)
-
-		#Grayscale conversion
-		grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
+		finalFrameMatrix,finalFrame,sizex,sizey = processFrame(frameMatrix,originalSizex,originalSizey,compressionFactor)
 		
-		#Smoothing
-		#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
-
-		#Unsharp masking
-		unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
-		
-		#Thresholding
-		thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey)
-
-		#Cropping edges
-		croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
-
 		if (now):
-			#Printing the image
-			printGif(croppedImageMatrix,sizex,sizey,baseCharset,lastMatrix)
+			showImage(finalFrameMatrix,sizex,sizey,baseCharset,fileName)
 		else:
-			all_frames.append(croppedImageMatrix)
+			all_frames.append(finalFrameMatrix)
 			durations.append(originalGif.info['duration']/9)
 			
 	if (not now):
 		input('\nReady\n')
 		i = 0
 		for frame in all_frames:
-			printImage(frame,sizex,sizey,baseCharset)
+			showImage(frame,sizex,sizey,baseCharset)
 			time.sleep(1/durations[i])
 			i = i + 1
-
-def printToWindow(ImageMatrix,sizex,sizey,charset):
-
-	root = Tk()
-	text = Text(root,height = sizey,width = sizex)
-	text.pack()
-	text.config(font = ("Courier", 2))
-	for y in range(0,sizey):
-		for x in range(0,sizex):
-			if   (ImageMatrix[x,y] ==   0):
-				text.insert(tkinter.END,charset[7])
-			elif (ImageMatrix[x,y] ==  32):
-				text.insert(tkinter.END,charset[6])
-			elif (ImageMatrix[x,y] ==  64):
-				text.insert(tkinter.END,charset[5])
-			elif (ImageMatrix[x,y] ==  96):
-				text.insert(tkinter.END,charset[4])
-			elif (ImageMatrix[x,y] == 128):
-				text.insert(tkinter.END,charset[3])
-			elif (ImageMatrix[x,y] == 160):
-				text.insert(tkinter.END,charset[2])
-			elif (ImageMatrix[x,y] == 192):
-				text.insert(tkinter.END,charset[1])
-			elif (ImageMatrix[x,y] == 224):
-				text.insert(tkinter.END,charset[0])
-	root.mainloop()
-
+		
 if (gif):
-	processGif()
-	
+	processGif()	
 else:	
-	#Collect image data
-	originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
-
-	#Process that image
-	processImage(originalImageMatrix,sizex,sizey,compressionFactor)
+	processImage()
+	
 
 
 

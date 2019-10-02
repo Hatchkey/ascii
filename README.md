@@ -1,10 +1,9 @@
 Image to ASCII converter
 ========================
-Used modules:
-	PIL
-	tkinter
+Required modules: PIL, tkinter
 
 	Converts the given image to ASCII format through a simple thresholding/unsharping algorithm
+
 Usage:
 ```
 	$ ASCIIart.py <FileName> [-d, -g , -n, -w]
