@@ -1,6 +1,7 @@
 from PIL import Image
 from PIL import ImageDraw
 from PIL import GifImagePlugin
+from tkinter import Frame,Tk,Label,Text
 
 import statistics
 import math
@@ -8,6 +9,8 @@ import os
 import time
 import sys
 import shutil
+import curses
+import tkinter
 
 #		TODO
 #	Post-processing smoothing
@@ -17,12 +20,23 @@ import shutil
 #	Better charset
 
 #	USAGE
-# python3 ASCIIart.py <FileName> [-d, -g, -n]
+# python3 ASCIIart.py <FileName> [-d, -g, -n, -w]
+
+class Window(Frame):
+
+	def __init__(self, master=None):
+		Frame.__init__(self, master)               
+		self.master = master
+		
+		def showText(self):
+			text = Label(self, text="Hey there good lookin!")
+			text.pack()
 
 #Show steps of image conversion?
 debug = False
 gif = False
 now = False
+window = False
 
 if (len(sys.argv) > 0 and "-d" in str(sys.argv)):
 	debug = True
@@ -32,6 +46,9 @@ if ("-g" in str(sys.argv)):
 
 if ("-n" in str(sys.argv)):
 	now = True
+
+if ("-w" in str(sys.argv)):
+	window = True
 
 #Variable which determines the character set the image will be printed with
 #[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
@@ -303,7 +320,8 @@ def smoothing(ImageMatrix,Image,sizex,sizey):
 	return ImageMatrix,Image
 	
 def printImage(ImageMatrix,sizex,sizey,charset):
-	os.system('cls' if os.name == 'nt' else 'clear')
+	
+	os.system('cls' if os.name == 'nt' else 'clear')	
 	for y in range(sizey):
 		print('')
 		for x in range(sizex):
@@ -347,6 +365,9 @@ def processImage(originalImageMatrix,sizex,sizey,compressionFactor):
 
 	#Printing the image
 	printImage(croppedImageMatrix,sizex,sizey,baseCharset)
+
+	if (window):
+		printToWindow(croppedImageMatrix,sizex,sizey,baseCharset)
 
 def move (y, x):
     print("\033[%d;%dH" % (y, x),end='')
@@ -426,15 +447,41 @@ def processGif():
 			time.sleep(1/durations[i])
 			i = i + 1
 
+def printToWindow(ImageMatrix,sizex,sizey,charset):
+
+	root = Tk()
+	text = Text(root,height = sizey,width = sizex)
+	text.pack()
+	text.config(font = ("Courier", 2))
+	for y in range(0,sizey):
+		for x in range(0,sizex):
+			if   (ImageMatrix[x,y] ==   0):
+				text.insert(tkinter.END,charset[7])
+			elif (ImageMatrix[x,y] ==  32):
+				text.insert(tkinter.END,charset[6])
+			elif (ImageMatrix[x,y] ==  64):
+				text.insert(tkinter.END,charset[5])
+			elif (ImageMatrix[x,y] ==  96):
+				text.insert(tkinter.END,charset[4])
+			elif (ImageMatrix[x,y] == 128):
+				text.insert(tkinter.END,charset[3])
+			elif (ImageMatrix[x,y] == 160):
+				text.insert(tkinter.END,charset[2])
+			elif (ImageMatrix[x,y] == 192):
+				text.insert(tkinter.END,charset[1])
+			elif (ImageMatrix[x,y] == 224):
+				text.insert(tkinter.END,charset[0])
+	root.mainloop()
 
 if (gif):
 	processGif()
-
+	
 else:	
 	#Collect image data
 	originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
 
 	#Process that image
 	processImage(originalImageMatrix,sizex,sizey,compressionFactor)
+
 
 
