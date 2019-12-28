@@ -6,11 +6,10 @@ from tkinter import Frame,Tk,Label,Text
 import numpy as np
 import statistics
 import math
-import os
 import time
-import sys
 import argparse
 import curses
+import sys
 
 #			TODO
 #	Post-processing smoothing
@@ -34,7 +33,6 @@ class Constants:
 
     # Program version
     VERSION = "0.0.1"
- 
  
  
 class Utils:
@@ -67,13 +65,27 @@ class Utils:
     def InitParser():
         parser = argparse.ArgumentParser(description="Convert an image or gif to ASCII text-art.")
         parser.add_argument('fileName', metavar='FILENAME', help = 'name of the file to be converted.' )
-        parser.add_argument('-d', dest ='debug' , action = 'store_true', default = False, help = 'debug (not currently implemented).')
-        parser.add_argument('-g', dest ='gif'   , action = 'store_true', default = False, help = 'signal that a gif was passed as entry (Want to remove asap).')
+        # parser.add_argument('-d', dest ='debug' , action = 'store_true', default = False, help = 'debug (not currently implemented).')
+        parser.add_argument('-g', dest ='gif'   , action = 'store_true', default = False, help = 'signal that a gif was passed as input.')
         parser.add_argument('-l', dest ='glitch', action = 'store_true', default = False, help = 'enable glitchy effects for images.')
       
         return parser
-        
 
+    @staticmethod
+    def progressbar(it, prefix="", size=60, file=sys.stdout):
+        count = len(it)
+        def show(j):
+            x = int(size*j/count)
+            file.write("%s[%s%s] %i/%i\r" % (prefix, "#"*x, "."*(size-x), j, count))
+            file.flush()        
+        show(0)
+        for i, item in enumerate(it):
+            yield item
+            show(i+1)
+        file.write("\n")
+        file.flush()
+        
+        
 class Frame:
     """A frame of an image or gif"""
 
@@ -369,12 +381,12 @@ class Frame:
 class StaticImage:
     """An image to be used by the program"""
     
-    def __init__(self,fileName):
+    def __init__(self,fileName, glitch = False, debug = False):
     
         # TODO Maybe attempt to use different extensions?
         self.frame = Frame(filePath = Constants.INPUT_PATH + fileName)
-        self.glitch = False
-        self.debug = False
+        self.glitch = glitch
+        self.debug = debug
     
     def show(self):
     
@@ -414,8 +426,8 @@ class AnimatedImage:
         self.frames = []
     
     def prepare(self):
-    
-        for frameIndex in range(0,self.gif.n_frames):
+
+        for frameIndex in Utils.progressbar(range(0,self.gif.n_frames), prefix="Processing frames...", size=self.gif.n_frames):
             
             # Locate current frame
             self.gif.seek(frameIndex)
@@ -429,6 +441,12 @@ class AnimatedImage:
             self.frames.append(frame)
     
     def show(self):
+    
+        # Process itself
+        self.prepare()
+        
+        # Wait for user input
+        input("\nReady\n")
     
         # Initialize a curses pad
         screen, pad = Utils.cursesScreenInit(self.sizeX,self.sizeY)
@@ -444,34 +462,28 @@ class AnimatedImage:
         Utils.cursesScreenEnd(screen)
 
 
+class ASCIIart:
+    """Converts a given image or gif to ASCII and shows it on the terminal"""
+
+    @staticmethod
+    def convert(args):
+        
+        if (args.gif == True):
+        
+            AnimatedImage(args.fileName).show()
+            
+        else:
+            
+            StaticImage(args.fileName,args.glitch).show()
+    
+    
 def main():
     """Application entrypoint"""
     
-    parser = Utils.InitParser()
+    control = Utils.InitParser().parse_args()
+
+    ASCIIart.convert(control)
     
-    results = parser.parse_args()
-    
-    # TODO !!
-    
-    if (results.gif):
-    
-        g = AnimatedImage(results.fileName)
-        
-        g.prepare()
-        
-        input("\nReady\n")
-        
-        g.show()
-        
-    else:
-    
-        i = StaticImage(results.fileName)
-        
-        i.setGlitch(results.glitch)
-        i.setDebug(results.debug)
-        
-        i.show()      
-        
     return
     
 if __name__ == "__main__":
