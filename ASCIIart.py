@@ -3,442 +3,477 @@ from PIL import ImageDraw
 from PIL import GifImagePlugin
 from tkinter import Frame,Tk,Label,Text
 
+import numpy as np
 import statistics
 import math
 import os
 import time
 import sys
-import shutil
-import tkinter
+import argparse
+import curses
 
-#		TODO
+#			TODO
 #	Post-processing smoothing
 #	Bilinear interpolation for rescaling
 #	Dithering instead of thresholding
 #	better Gif suport
 #	Better charset
 
-#	USAGE
-# python3 ASCIIart.py <FileName> [-d, -g, -n, -w]
+class Constants:
+    """Constant values used by the program"""
+    
+    # Path where the input files are located
+    INPUT_PATH = "Input/"
 
-class Window(Frame):
+    # Character set used on the last step of conversionDarker
+    # Should follow the coverage scheme: Darker ... Lighter
+    CHAR_SET =  {0:' ',32:'*',64:'+',96:'/',128:'1',160:'7',192:'B',224:'#'}
+    
+    # Play speed for gifs
+    PLAY_SPEED = 1/750
 
-	def __init__(self, master=None,title="Blank"):
-		Frame.__init__(self, master)               
-		self.master = master
-		
+    # Program version
+    VERSION = "0.0.1"
+ 
+ 
+ 
+class Utils:
+    """General utilities"""
+    @staticmethod
+    def cursesScreenInit(sizeX,sizeY):
 
-#Show steps of image conversion?
-debug = False
-gif = False
-now = False
-window = False
+        stdscr = curses.initscr()
+        curses.noecho()
+        curses.cbreak()
+        stdscr.keypad(True)
+            
+        pad = curses.newpad(sizeY,sizeX)
+        stdscr.nodelay(True)
+        pad.nodelay(True)
 
-if (len(sys.argv) > 0 and "-d" in str(sys.argv)):
-	debug = True
+        return stdscr,pad
+    
+    @staticmethod
+    def cursesScreenEnd(stdscr):
 
-if ("-g" in str(sys.argv)):
-	gif = True
+        curses.nocbreak()
+        stdscr.keypad(False)
+        curses.echo()
+        curses.endwin()
 
-if ("-n" in str(sys.argv)):
-	now = True
+        return 
 
-if ("-w" in str(sys.argv)):
-	window = True
+    @staticmethod
+    def InitParser():
+        parser = argparse.ArgumentParser(description="Convert an image or gif to ASCII text-art.")
+        parser.add_argument('fileName', metavar='FILENAME', help = 'name of the file to be converted.' )
+        parser.add_argument('-d', dest ='debug' , action = 'store_true', default = False, help = 'debug (not currently implemented).')
+        parser.add_argument('-g', dest ='gif'   , action = 'store_true', default = False, help = 'signal that a gif was passed as entry (Want to remove asap).')
+        parser.add_argument('-l', dest ='glitch', action = 'store_true', default = False, help = 'enable glitchy effects for images.')
+      
+        return parser
+        
 
-#Variable which determines the character set the image will be printed with
-#[DARK, DARKGRAY, LIGHTGRAY, LIGHT]
-#baseCharset = [' ', '/', '1', 'B']
-baseCharset = [' ','*','+','/','1','7','B','#']
+class Frame:
+    """A frame of an image or gif"""
 
-def getImageInformation():
-	#Get file name
-	fileName = sys.argv[1] 	
-	
-	#Try opening the image			
-	originalImage = Image.open("Input/"+fileName)
-	originalImageMatrix = originalImage.load()
-	sizex,sizey = originalImage.size
+    def __init__(self, filePath = None, access = None, sizeX = None, sizeY = None, compFactor = None, duration = None):
+        
+        if (filePath == None):
+            # Initialize from data (for gifs)
+            
+            self.access = access
+            self.sizeX = sizeX
+            self.sizeY = sizeY
+            self.compressionFactor = compFactor
+            self.duration = duration
 
-	#Calculates the compression factor for the image to fit the terminal
-	compressionFactor = math.floor(sizex/250) #TODO Retrieve terminal size to calculate compression factor
-	
-	if compressionFactor == 0:
-		compressionFactor = 1 #Support for small images	
+        else:
+            # Initialize from a file (for images)
+            
+            try:
+                self.img = Image.open(filePath)
+                self.access = self.img.load()
+                self.sizeX, self.sizeY = self.img.size
+                self.compressionFactor = max(1,math.floor(self.sizeX/250)) # TODO
 
-	if (debug):
-		originalImage.show()
-	
-	return fileName,originalImageMatrix,sizex,sizey,compressionFactor
+            except FileNotFoundError as error:
+                print(error)
+            
+    def rescale(self):
+        # Performs nearest-neighbor rescaling on the image to fit the provided compression factor
 
-def getGifInformation():
-	fileName = sys.argv[1]
-	
-	originalGif = Image.open("Input/"+fileName)
-	if (debug):
-		print(originalGif.is_animated)
-		print(originalGif.n_frames)
-	
-	sizex,sizey = originalGif.size
-	
-	terminalSize = shutil.get_terminal_size()
+        def correctPixel(i,j):
+            return (j% (self.compressionFactor*2) == 1 and i % self.compressionFactor == 1) or self.compressionFactor == 1
+        
+        # Calculate new size for the image
+        newSizeX = math.floor(self.sizeX/self.compressionFactor)
+        newSizeY = math.floor(self.sizeY/(2*self.compressionFactor))
+        
+        # Generate a new compressed image with the calculated size
+        compImg = Image.new('RGB',[newSizeX,newSizeY])
+        compImgAccess = compImg.load() # TODO Not needed?
+        compImgDrawer = ImageDraw.Draw(compImg)
+        
+        # Port nearest pixels from the original image
+        for y in range(self.sizeY - 1):
+            for x in range(self.sizeX - 1):
+                if (correctPixel(x,y)):
+                    positionX = math.floor(x/self.compressionFactor)
+                    positionY = math.floor(y/(2*self.compressionFactor))
+                    compImgDrawer.point([positionX,positionY],self.access[x,y])
 
-	compressionFactor = math.floor(max(sizex/terminalSize.columns,sizey/terminalSize.columns))
+        # Update access value
+        compImgAccess = compImg.load()
+        
+        # Update access matrix, image and size
+        self.img = compImg
+        self.access = compImgAccess
+        self.sizeX = newSizeX
+        self.sizeY = newSizeY
 
-	if compressionFactor == 0:
-		compressionFactor = 1
+        return 
 
-	return fileName,originalGif,sizex,sizey,compressionFactor
+    def grayscale(self):
+        # Converts this frame to grayscale in 8 bits
 
-def nearestNeighborRescaling(ImageMatrix,sizex,sizey,compressionFactor):
-	#Rescales the image by compressionFactor, with the y axis being rescaled by 2*compressionFactor
-	#due to characters being printed in 6x3 pixels
+        def toGrayscale(rgbValues):
+            # Convert an rgb value to the corresponding grayscale value
+            return math.floor(0.2126*rgbValues[0] + 0.7152*rgbValues[1] + 0.0722*rgbValues[2])
 
-	def isRightPixel(sizex,sizey,x,y):
-		#Decides if the analyzed pixel goes into the compressed image, based on the compression factor using
-		#the nearest neighbor method
-		if (y%(compressionFactor*2) == 1 and x%compressionFactor == 1):
-			return True
-		else:
-			return False
-	
-	#Initialize the new image with compressed size and its drawer
-	newSizex = math.floor(sizex/compressionFactor)
-	newSizey = math.floor(sizey/(compressionFactor*2))
-	compressedImage = Image.new('RGB',[newSizex,newSizey])
-	compressedImageMatrix = compressedImage.load()
-	compressedImageDrawer = ImageDraw.Draw(compressedImage);
-	
-	#Copy the pixels that are ported from the original image
-	for y in range(sizey-1):
-		for x in range(sizex-1):
-			if(compressionFactor == 1 or isRightPixel(sizex,sizey,x,y)):
-				positionX = math.floor(x/compressionFactor)
-				positionY = math.floor(y/(compressionFactor*2))
-				compressedImageDrawer.point([positionX,positionY],ImageMatrix[x,y])
-	
-	if (debug):
-		compressedImage.show()
-	
-	#Reloads the matrix
-	compressedImageMatrix = compressedImage.load()
-	
-	return compressedImageMatrix,compressedImage,newSizex,newSizey
-	
-def newGrayScaleImage(ImageMatrix,sizex,sizey):
-	#Converts the provided image to a grayscale version of it, and returns it
-	
-	def grayscaleConverter(rgbValues):
-		#Given the RGB value of a pixel, converts it to a grayscale value
-		grayscaleValue = 0.2126*rgbValues[0] + 0.7152*rgbValues[1] + 0.0722*rgbValues[2]
-		return math.floor(grayscaleValue)
-	
-	#Creates a new image in the small size
-	grayscaleImage = Image.new('L',[sizex,sizey])
-	grayscaleImageMatrix = grayscaleImage.load()
-	grayscaleImageDrawer = ImageDraw.Draw(grayscaleImage)
+        # Generate new grayscale image for the converted frame
+        grayImg = Image.new('L',[self.sizeX,self.sizeY])
+        grayImgAccess = grayImg.load() # TODO Not needed?
+        grayImgDrawer = ImageDraw.Draw(grayImg)
 
-	#Fills that image converting RGB to grayscale
-	for y in range(sizey-1):
-		for x in range(sizex-1):
-			grayscaleValue = grayscaleConverter(ImageMatrix[x,y])
-			#print(grayscaleValue)
-			grayscaleImageDrawer.point([x,y],grayscaleValue)
-	
-	if (debug):
-		grayscaleImage.show()
-		
-	#Reloads the matrix
-	grayscaleImageMatrix = grayscaleImage.load()
-	
-	return grayscaleImageMatrix,grayscaleImage
+        # Convert each pixel of the frame
+        for y in range(self.sizeY - 1):
+            for x in range(self.sizeX - 1):
+                grayValue = toGrayscale(self.access[x,y])
+                grayImgDrawer.point([x,y],grayValue)
 
-def unsharpMasking(ImageMatrix,Image,sizex,sizey):
-	#Performs unsharp masking to fletch out image borders
-	
-	def unsharpGaussian(ImageMatrix,x,y,sizex,sizey):
-		#Uses the gaussian filter for unsharp masking in this pixel's neighborhood
-		#([-1 -1 -1]
-		# [-1  8 -1]
-		# [-1 -1 -1])
-		finalValue = 8*ImageMatrix[x,y]
-		#x+1,y
-		if (x+1 <= sizex):
-			finalValue = finalValue - ImageMatrix[x+1,y]
-			#x+1,y+1
-			if (y+1 <= sizey):
-				finalValue = finalValue - ImageMatrix[x+1,y+1]
-			#x+1,y-1
-			if (y-1 >= 0):
-				finalValue = finalValue - ImageMatrix[x+1,y-1]
-		#x-1,y
-		if (x-1 >= 0):
-			finalValue = finalValue - ImageMatrix[x-1,y]
-			#x-1,y+1
-			if (y+1 <= sizey):
-				finalValue = finalValue - ImageMatrix[x-1,y+1]
-			#x-1,y-1
-			if (y-1 >= 0):
-				finalValue = finalValue - ImageMatrix[x-1,y-1]
-		#x,y+1
-		if (y+1 <= sizey):
-			finalValue = finalValue - ImageMatrix[x,y+1]
-		#x,y-1
-		if(y-1 >= 0):
-			finalValue = finalValue - ImageMatrix[x,y-1]
-		
-		return finalValue
-	
-	#Copies the matrix so that changes during processing do not affect next pixel
-	grayscaleImageCopy = Image.copy()
-	grayscaleImageCopyMatrix = grayscaleImageCopy.load()
-	#Creates the drawer for this image
-	grayscaleImageDrawer = ImageDraw.Draw(Image)
-	
-	for y in range(sizey - 1):
-		for x in range(sizex - 1):
-			newPixelValue = unsharpGaussian(grayscaleImageCopyMatrix,x,y,sizex,sizey)
-			grayscaleImageDrawer.point([x,y],ImageMatrix[x,y] + newPixelValue)
-			
-	if (debug):
-		Image.show()
-		
-	#Reloads the matrix
-	ImageMatrix = Image.load()
-	
-	return ImageMatrix,Image
+        # Update access value
+        grayImgAccess = grayImg.load()
 
-def thresholding(ImageMatrix,Image,sizex,sizey):
-	#Performs thresholding in the image
+        # Update image and access matrix
+        self.img = grayImg
+        self.access = grayImgAccess
 
-	def findMedianV(ImageMatrix,sizex,sizey):
-		#Returns the median pixel intensity in the given image
-		aux = []
-		for i in range(sizex):
-			for j in range(sizey):
-				aux.append(ImageMatrix[i,j])
-		
-		median = (max(aux)+min(aux))/2
-		return median
-		
-	median = findMedianV(ImageMatrix,sizex,sizey)
-	
-	ImageDrawer = ImageDraw.Draw(Image)	
+        return
 
-	for y in range (1,sizey-1):
-		for x in range (1,sizex-1):
-			newPixelValue = ImageMatrix[x,y]
-			if (newPixelValue >= median):
-				if(newPixelValue >= 5*median/8):
-					if(newPixelValue >= 6*median/8):
-						ImageDrawer.point([x,y],224)
-					else:
-						ImageDrawer.point([x,y],192)
-				else:
-					if(newPixelValue >= 4*median/8):
-						ImageDrawer.point([x,y],160)
-					else:
-						ImageDrawer.point([x,y],128)
-			else:
-				if(newPixelValue >= 2*median/8):
-					if(newPixelValue >= 3*median/8):
-						ImageDrawer.point([x,y],96)
-					else:
-						ImageDrawer.point([x,y],64)
-				else:
-					if(newPixelValue >= 1*median/8):
-						ImageDrawer.point([x,y],32)
-					else:
-						ImageDrawer.point([x,y],0)
-	
-	if (debug):
-		Image.show()
-	
-	ImageMatrix = Image.load()
-	
-	return ImageMatrix,Image
+    def unsharp(self):
+        # Perform unsharp masking using gaussian filter on the frame
 
-def cropping(Image,sizex,sizey):
-	#Crops the 1 pixel border left from thresholding
-	croppedImage = Image.crop((1,1,sizex,sizey))
-	croppedImageMatrix = croppedImage.load()
-	newSizex,newSizey = croppedImage.size
-	
-	return croppedImageMatrix,croppedImage,newSizex,newSizey
-	
-def smoothing(ImageMatrix,Image,sizex,sizey):
-	#NEEDS REDOING (TOO STRONG)
-	def meanFilter(ImageMatrix,x,y,sizex,sizey):
-		#Gets the mean value of this pixel's neighborhood and adds it to the center
-		pixelValuesVector = [ImageMatrix[x,y]]
-		#x+1,y
-		if (x+1 <= sizex):
-			pixelValuesVector.append(ImageMatrix[x+1,y])
-			#x+1,y+1
-			if (y+1 <= sizey):
-				pixelValuesVector.append(ImageMatrix[x+1,y+1])
-			#x+1,y-1
-			if (y-1 >= 0):
-				pixelValuesVector.append(ImageMatrix[x+1,y-1])
-		#x-1,y
-		if (x-1 >= 0):
-			pixelValuesVector.append(ImageMatrix[x-1,y])
-			#x-1,y+1
-			if (y+1 <= sizey):
-				pixelValuesVector.append(ImageMatrix[x-1,y+1])
-			#x-1,y-1
-			if (y-1 >= 0):
-				pixelValuesVector.append(ImageMatrix[x-1,y-1])
-		#x,y+1
-		if (y+1 <= sizey):
-			pixelValuesVector.append(ImageMatrix[x,y+1])
-		#x,y-1
-		if(y-1 >= 0):
-			pixelValuesVector.append(ImageMatrix[x,y-1])
-		
-		return math.floor(statistics.mean(pixelValuesVector))
-		
-	ImageDrawer = ImageDraw.Draw(Image)
-	imageCopy = Image.copy()
-	imageCopyMatrix = imageCopy.load()
-	
-	for y in range(1,sizey-1):
-		for x in range(1,sizex-1):
-			newPixelValue = meanFilter(imageCopyMatrix,x,y,sizex,sizey)
-			ImageDrawer.point([x,y],newPixelValue)
+        def gaussian(imgAccess,x,y):
+            # Gaussian filter:
+            # -1 -1 -1
+            # -1  8 -1
+            # -1 -1 -1
 
-	if (debug):
-		Image.show()
-		
-	#Reload the matrix
-	ImageMatrix = Image.load()
-	
-	return ImageMatrix,Image
-	
-def showImage(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName):
-	
-	def printImage(ImageMatrix,sizex,sizey,charset):
-		os.system('cls' if os.name == 'nt' else 'clear')	
-		for y in range(sizey):
-			print('')
-			for x in range(sizex):
-				if   (ImageMatrix[x,y] ==   0):
-					print(charset[0],end='')
-				elif (ImageMatrix[x,y] ==  32):
-					print(charset[1],end='')
-				elif (ImageMatrix[x,y] ==  64):
-					print(charset[2],end='')
-				elif (ImageMatrix[x,y] ==  96):
-					print(charset[3],end='')
-				elif (ImageMatrix[x,y] == 128):
-					print(charset[4],end='')
-				elif (ImageMatrix[x,y] == 160):
-					print(charset[5],end='')
-				elif (ImageMatrix[x,y] == 192):
-					print(charset[6],end='')
-				elif (ImageMatrix[x,y] == 224):
-					print(charset[7],end='')
+            finalValue = 8*imgAccess[x,y]
 
-	def printToWindow(ImageMatrix,sizex,sizey,charset,fileName):
-		root = Tk()
-		root.title(fileName)
-		text = Text(root,height = sizey,width = sizex)
-		text.pack()
-		text.config(font = ("Courier", 2),bg = 'black',fg = 'green')
-		for y in range(0,sizey):
-			for x in range(0,sizex):
-				if   (ImageMatrix[x,y] ==   0):
-					text.insert(tkinter.END,charset[0])
-				elif (ImageMatrix[x,y] ==  32):
-					text.insert(tkinter.END,charset[1])
-				elif (ImageMatrix[x,y] ==  64):
-					text.insert(tkinter.END,charset[2])
-				elif (ImageMatrix[x,y] ==  96):
-					text.insert(tkinter.END,charset[3])
-				elif (ImageMatrix[x,y] == 128):
-					text.insert(tkinter.END,charset[4])
-				elif (ImageMatrix[x,y] == 160):
-					text.insert(tkinter.END,charset[5])
-				elif (ImageMatrix[x,y] == 192):
-					text.insert(tkinter.END,charset[6])
-				elif (ImageMatrix[x,y] == 224):
-					text.insert(tkinter.END,charset[7])
-		root.mainloop()
-	
-	if (not window):
-		printImage(finalImageMatrix,finalSizex,finalSizey,baseCharset)
-	else:
-		if (not gif):
-			printToWindow(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName)
-		if (gif):
-			return 0
-	
-def processFrame(originalImageMatrix,sizex,sizey,compressionFactor):
+            # X+1 , Y
+            if (x+1 <= self.sizeX):
+                finalValue = finalValue - imgAccess[x+1,y]
+                
+                # X+1 , Y+1
+                if (y+1 <= self.sizeY):
+                    finalValue = finalValue - imgAccess[x+1,y+1]
+                # X+1 , Y-1
+                if (y-1 >= 0):
+                    finalValue = finalValue - imgAccess[x+1,y-1]
 
-	#Nearest Neighbor rescaling 
-	compressedImageMatrix,compressedImage,sizex,sizey = nearestNeighborRescaling(originalImageMatrix,sizex,sizey,compressionFactor)
+            # X-1 , Y
+            if (x - 1 >= 0):
+                finalValue = finalValue - imgAccess[x-1,y]
 
-	#Grayscale conversion
-	grayscaleImageMatrix,grayscaleImage = newGrayScaleImage(compressedImageMatrix,sizex,sizey)
+                # X-1 , Y+1
+                if (y+1 <= self.sizeY):
+                    finalValue = finalValue - imgAccess[x-1,y+1]
 
-	#Smoothing
-	#smoothedImageMatrix,smoothedImage = smoothing(grayscaleImageMatrix,grayscaleImage,sizex,sizey,debug)
+                # X-1, Y-1
+                if (y-1 >= 0):
+                    finalValue = finalValue - imgAccess[x-1,y-1]
 
-	#Unsharp masking
-	unsharpedImageMatrix,unsharpedImage = unsharpMasking(grayscaleImageMatrix,grayscaleImage,sizex,sizey)
+            # X , Y+1
+            if (y+1 <= self.sizeY):
+                finalValue = finalValue - imgAccess[x,y+1]
 
-	#Thresholding
-	thresholdedImageMatrix,thresholdedImage = thresholding(unsharpedImageMatrix,unsharpedImage,sizex,sizey)
+            # X , Y-1
+            if (y-1 >= 0):
+                    finalValue = finalValue - imgAccess[x,y-1]
 
-	#Cropping edges
-	croppedImageMatrix,croppedImage,sizex,sizey = cropping(thresholdedImage,sizex,sizey)
-		
-	return croppedImageMatrix,croppedImage,sizex,sizey
-	
-def processImage():
-
-	#Get image data
-	fileName,originalImageMatrix,sizex,sizey,compressionFactor = getImageInformation()
-	
-	#Process that image as a frame
-	finalImageMatrix,finalImage,finalSizex,finalSizey = processFrame(originalImageMatrix,sizex,sizey,compressionFactor)
-	
-	#Print that image
-	showImage(finalImageMatrix,finalSizex,finalSizey,baseCharset,fileName)
-	
-def processGif():
-
-	fileName,originalGif,originalSizex,originalSizey,compressionFactor = getGifInformation()
-
-	all_frames = []
-	durations = []
-
-	for frame in range(0,originalGif.n_frames):
-	
-		originalGif.seek(frame)
-		frameMatrix = originalGif.load()
-	
-		finalFrameMatrix,finalFrame,sizex,sizey = processFrame(frameMatrix,originalSizex,originalSizey,compressionFactor)
-		
-		if (now):
-			showImage(finalFrameMatrix,sizex,sizey,baseCharset,fileName)
-		else:
-			all_frames.append(finalFrameMatrix)
-			durations.append(originalGif.info['duration']/9)
-			
-	if (not now):
-		input('\nReady\n')
-		i = 0
-		for frame in all_frames:
-			showImage(frame,sizex,sizey,baseCharset)
-			time.sleep(1/durations[i])
-			i = i + 1
-		
-if (gif):
-	processGif()	
-else:	
-	processImage()
-	
+            return finalValue
 
 
+        # Copies the image so that changes during processing do not affect next pixel
+        imgCopy = self.img.copy()
+        imgCopyAccess = imgCopy.load()
+        imgDrawer = ImageDraw.Draw(self.img)
+
+        # Process each pixel
+        for y in range(self.sizeY - 1):
+            for x in range(self.sizeX - 1):
+                newPixAdd = gaussian(imgCopyAccess,x,y)
+                imgDrawer.point([x,y],imgCopyAccess[x,y] + newPixAdd)
+
+        # Update access matrix
+        self.access = self.img.load()
+
+        return
+        
+    def threshold(self):
+        # Performs thresholding on the image into x classes
+
+        def medianValue():
+            # Returns the median pixel intensity
+            aux = []
+            for i in range(self.sizeX):
+                for j in range(self.sizeY):
+                    aux.append(self.access[i,j])
+
+            median = (max(aux)+min(aux))/2
+            return median
+
+        med = medianValue()
+
+        # Generate image drawer
+        imgDrawer = ImageDraw.Draw(self.img)
+
+        # Classify pixels
+        for y in range(self.sizeY - 1):
+            for x in range(self.sizeX - 1):
+                
+                pixelValue = self.access[x,y]
+                if (pixelValue >= med):
+                    if (pixelValue >= 5*med/8):
+                        if (pixelValue >= 6*med/8):
+                            imgDrawer.point([x,y],224)
+                        else:
+                            imgDrawer.point([x,y],192)
+                    else:
+                        if (pixelValue >= 4*med/8):
+                            imgDrawer.point([x,y],160)
+                        else:
+                            imgDrawer.point([x,y],128)
+                else:
+                    if (pixelValue >= 2*med/8):
+                        if (pixelValue >= 3*med/8):
+                            imgDrawer.point([x,y],96)
+                        else:
+                            imgDrawer.point([x,y],64)
+                    else:
+                        if (pixelValue >= 1*med/8):
+                            imgDrawer.point([x,y],32)
+                        else:
+                            imgDrawer.point([x,y],0)
+
+        # Update access
+        self.access = self.img.load()
+               
+        return
+
+    def crop(self):
+        # Crops a 1 pixel border from the frame
+        cropImg = self.img.crop((1,1,self.sizeX,self.sizeY))
+        cropAccess = cropImg.load()
+        newSizeX,newSizeY = cropImg.size
+
+        self.img = cropImg
+        self.access = cropAccess
+        self.sizeX = newSizeX
+        self.sizeY = newSizeY
+
+        return
+
+    def process(self):
+        # Apply every filter to the frame
+        
+        self.rescale()
+        self.grayscale()
+        self.unsharp()
+        self.threshold()
+        self.crop()
+        
+        return
+    
+    def showGlitchy(self,screen,pad):
+
+        mask = np.random.rand(self.sizeX,self.sizeY)
+
+        glitchCounter = 0.01 # Starting glitch effect counter
+        glitchRate = 0.15	 # Rate at which the image will change
+
+        c = ord('z')
+
+        while (c != ord('q')):
+
+
+            glitchCounter = glitchCounter + glitchRate
+
+            if (glitchCounter <= 0 or glitchCounter >= 0.5):
+
+                if (glitchCounter >= 0.5 and glitchCounter <= 1):
+                    pass
+                else:
+                    glitchRate = - glitchRate
+
+            for i in range(0,self.sizeX-1):
+                for j in range(0,self.sizeY-1):
+                    if (mask[i,j] < glitchCounter):
+                        pad.addch(j,i,Constants.CHAR_SET[self.access[i,j]])
+                    else:
+                        pad.addch(j,i,np.random.randint(low=1,high=127))
+
+            pad.refresh(0,0, 0,0, curses.LINES-1,curses.COLS-1)
+            
+            c = screen.getch()
+        
+        return
+        
+    def showDefault(self,screen,pad,gif):     	
+        if (gif):
+        
+            for i in range(0,self.sizeX-1):
+                for j in range(0,self.sizeY-1):					
+                    pad.addch(j,i,Constants.CHAR_SET[self.access[i,j]])
+
+            pad.refresh(0,0, 0,0, curses.LINES-1,curses.COLS-1)
+            
+        else:
+
+            c = ord('z')
+
+            while(c != ord('q')):
+            
+                for i in range(0,self.sizeX-1):
+                    for j in range(0,self.sizeY-1):					
+                        pad.addch(j,i,Constants.CHAR_SET[self.access[i,j]])
+
+                pad.refresh(0,0, 0,0, curses.LINES-1,curses.COLS-1)
+
+                c = screen.getch()
+                
+        return
+
+    def show(self,glitch,screen,pad,gif):
+        
+        if (glitch):
+            self.showGlitchy(screen,pad)
+        else:
+            self.showDefault(screen,pad,gif)
+        
+        return
+
+        
+class StaticImage:
+    """An image to be used by the program"""
+    
+    def __init__(self,fileName):
+    
+        # TODO Maybe attempt to use different extensions?
+        self.frame = Frame(filePath = Constants.INPUT_PATH + fileName)
+        self.glitch = False
+        self.debug = False
+    
+    def show(self):
+    
+        # Process the only frame
+        self.frame.process()
+
+        # Initialize a new curses pad
+        screen, pad = Utils.cursesScreenInit(self.frame.sizeX,self.frame.sizeY)
+        
+        # Print that image
+        self.frame.show(self.glitch,screen,pad,False)
+        
+        # End curses pad
+        Utils.cursesScreenEnd(screen)
+        
+        return
+        
+    def setGlitch(self,glitch):
+        self.glitch = glitch
+        
+        return
+        
+    def setDebug(self,debug):
+        self.debug = debug
+        
+        return
+    
+
+class AnimatedImage:
+    """A gif to be used by the program"""
+    
+    def __init__(self,fileName):
+    
+        self.gif = Image.open(Constants.INPUT_PATH + fileName)
+        self.sizeX, self.sizeY = self.gif.size
+        self.compressionFactor = 1 #TODO Calculate based on terminal size  
+        self.frames = []
+    
+    def prepare(self):
+    
+        for frameIndex in range(0,self.gif.n_frames):
+            
+            # Locate current frame
+            self.gif.seek(frameIndex)
+            access = self.gif.load()
+            
+            # Initialize and process current frame
+            frame = Frame(access=access,sizeX=self.sizeX,sizeY=self.sizeY,compFactor=self.compressionFactor,duration=self.gif.info['duration'])
+            frame.process()
+            
+            # Save for later presenting
+            self.frames.append(frame)
+    
+    def show(self):
+    
+        # Initialize a curses pad
+        screen, pad = Utils.cursesScreenInit(self.sizeX,self.sizeY)
+        
+        # Show every frame available
+        control = ord('a')
+        
+        for frame in self.frames:
+            frame.show(False,screen,pad,True)
+            time.sleep(Constants.PLAY_SPEED*frame.duration)
+
+        # End curses pad
+        Utils.cursesScreenEnd(screen)
+
+
+def main():
+    """Application entrypoint"""
+    
+    parser = Utils.InitParser()
+    
+    results = parser.parse_args()
+    
+    # TODO !!
+    
+    if (results.gif):
+    
+        g = AnimatedImage(results.fileName)
+        
+        g.prepare()
+        
+        input("\nReady\n")
+        
+        g.show()
+        
+    else:
+    
+        i = StaticImage(results.fileName)
+        
+        i.setGlitch(results.glitch)
+        i.setDebug(results.debug)
+        
+        i.show()      
+        
+    return
+    
+if __name__ == "__main__":
+    main()
 
